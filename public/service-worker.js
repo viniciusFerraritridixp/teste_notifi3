@@ -1,3 +1,12 @@
+// Cache name and version
+const CACHE_NAME = 'pushme-cache-v1';
+const urlsToCache = [
+  '/',
+  '/static/js/bundle.js',
+  '/static/css/main.css',
+  '/manifest.json'
+];
+
 // urlB64ToUint8Array is a magic function that will encode the base64 public key
 // to Array buffer which is needed by the subscription option
 function urlB64ToUint8Array (base64String) {
@@ -34,20 +43,86 @@ async function registerPush () {
 
 async function showLocalNotification (title, body, swRegistration) {
   const options = {
-    body
+    body,
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-72x72.png',
+    vibrate: [200, 100, 200],
+    data: {
+      url: '/'
+    },
+    actions: [
+      {
+        action: 'open',
+        title: 'Abrir App',
+        icon: '/icons/icon-72x72.png'
+      }
+    ]
     // here you can add more properties like icon, image, vibrate, etc.
   }
   return swRegistration.showNotification(title, options)
 }
 
 self.addEventListener('install', function (event) {
-  event.waitUntil(self.skipWaiting()) // Activate worker immediately
+  // Perform install steps
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(function(cache) {
+        console.log('Opened cache');
+        return cache.addAll(urlsToCache);
+      })
+      .then(() => self.skipWaiting()) // Activate worker immediately
+  );
 })
+
 self.addEventListener('activate', function (event) {
   // This will be called only once when the service worker is activated.
-  console.log('Registerd Serviceworker')
-  event.waitUntil(self.clients.claim()) // Become available to all pages
+  console.log('Registered Serviceworker')
+  
+  event.waitUntil(
+    caches.keys().then(function(cacheNames) {
+      return Promise.all(
+        cacheNames.map(function(cacheName) {
+          if (cacheName !== CACHE_NAME) {
+            console.log('Deleting old cache:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => self.clients.claim()) // Become available to all pages
+  );
 })
+
+// Fetch event - serve from cache, fallback to network
+self.addEventListener('fetch', function(event) {
+  event.respondWith(
+    caches.match(event.request)
+      .then(function(response) {
+        // Cache hit - return response
+        if (response) {
+          return response;
+        }
+
+        return fetch(event.request).then(
+          function(response) {
+            // Check if we received a valid response
+            if(!response || response.status !== 200 || response.type !== 'basic') {
+              return response;
+            }
+
+            // Clone the response
+            var responseToCache = response.clone();
+
+            caches.open(CACHE_NAME)
+              .then(function(cache) {
+                cache.put(event.request, responseToCache);
+              });
+
+            return response;
+          }
+        );
+      })
+    );
+});
 
 self.addEventListener('push', function (event) {
   if (event.data) {
@@ -59,6 +134,35 @@ self.addEventListener('push', function (event) {
     console.log('Push event but no data')
   }
 })
+
+// Handle notification click
+self.addEventListener('notificationclick', function(event) {
+  console.log('Notification click received.');
+  
+  event.notification.close();
+  
+  if (event.action === 'open') {
+    event.waitUntil(
+      clients.openWindow('/')
+    );
+  } else {
+    event.waitUntil(
+      clients.matchAll({
+        type: 'window'
+      }).then(function(clientList) {
+        for (var i = 0; i < clientList.length; i++) {
+          var client = clientList[i];
+          if (client.url === '/' && 'focus' in client) {
+            return client.focus();
+          }
+        }
+        if (clients.openWindow) {
+          return clients.openWindow('/');
+        }
+      })
+    );
+  }
+});
 
 self.addEventListener('message', async function (event) {
   console.log('Handling message event:', event)

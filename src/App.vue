@@ -1,5 +1,6 @@
 <template>
   <div id="app">
+    <PWANotifications />
     <Head />
     <router-view/>
   </div>
@@ -9,11 +10,13 @@
 
 <script>
 import Head from '@/components/Head.vue'
+import PWANotifications from '@/components/PWANotifications.vue'
 
 export default {
   name: 'home',
   components: {
-    Head
+    Head,
+    PWANotifications
   }
 }
 </script>
